@@ -146,8 +146,8 @@
 
     <script>
         // --- Supabase Configuration ---
-        const SUPABASE_URL = 'https://oxlcnvpdrpbayvphdfcw.supabase.co'; // Replace with your Project URL
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im94bGNudnBkcnBiYXl2cGhkZmN3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU3MDc1MDEsImV4cCI6MjA3MTI4MzUwMX0.7tXTAGu2AFnfu5tz1b0ZTD5cSsSjMZLKXw2zEXrm2B0'; // Replace with your anon key
+        const SUPABASE_URL = 'YOUR_SUPABASE_URL'; // Replace with your Project URL
+        const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY'; // Replace with your anon key
 
         let _supabase;
         const { createClient } = supabase;
@@ -199,7 +199,7 @@
             if (session) {
                 userEmailDisplay.textContent = session.user.email;
                 listenForHistoryUpdates();
-                requestNotificationPermission(); // Request permission on login
+                requestNotificationPermission();
                 const inProgressWorkout = getInProgressWorkout();
                 if (inProgressWorkout) {
                     restoreWorkout(inProgressWorkout);
@@ -300,12 +300,7 @@
         function playBeep(count = 3) {
             if (count <= 0) return;
             if (!audioCtx) {
-                try {
-                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                } catch (e) {
-                    console.error("Web Audio API is not supported in this browser");
-                    return;
-                }
+                try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { console.error("Web Audio API is not supported in this browser"); return; }
             }
             const oscillator = audioCtx.createOscillator();
             const gainNode = audioCtx.createGain();
@@ -317,39 +312,21 @@
             gainNode.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.2);
             oscillator.start(audioCtx.currentTime);
             oscillator.stop(audioCtx.currentTime + 0.2);
-
             setTimeout(() => playBeep(count - 1), 400);
         }
 
-        function requestNotificationPermission() {
-            if ('Notification' in window && Notification.permission === 'default') {
-                Notification.requestPermission();
-            }
-        }
-
-        function showNotification(title, options) {
-            if (!('Notification' in window)) {
-                console.log('This browser does not support desktop notification');
-                return;
-            }
-
-            if (Notification.permission === 'granted') {
-                const notification = new Notification(title, options);
-                notification.onclick = () => {
-                    window.focus();
-                };
-            }
-        }
-
-        function startRestTimer(seconds) { lastStartedRest = seconds; clearInterval(restTimerInterval); restTimerEndTime = Date.now() + seconds * 1000; updateRestTimer(); restTimerInterval = setInterval(updateRestTimer, 1000); }
-        function stopRestTimer() { clearInterval(restTimerInterval); restTimerDisplay.textContent = "00:00"; }
-        function updateRestTimer() { const remaining = restTimerEndTime - Date.now(); if (remaining <= 0) { clearInterval(restTimerInterval); restTimerDisplay.textContent = "00:00"; playBeep(); showNotification('Rest Over!', { body: "Time to start your next set!" }); return; } const minutes = String(Math.floor((remaining % 3600000) / 60000)).padStart(2, '0'); const seconds = String(Math.floor((remaining % 60000) / 1000)).padStart(2, '0'); restTimerDisplay.textContent = `${minutes}:${seconds}`; }
+        function requestNotificationPermission() { if ('Notification' in window && Notification.permission === 'default') { Notification.requestPermission(); } }
+        function showNotification(title, options) { if (!('Notification' in window)) { console.log('This browser does not support desktop notification'); return; } if (Notification.permission === 'granted') { const notification = new Notification(title, options); notification.onclick = () => { window.focus(); }; } }
+        function startRestTimer(seconds) { lastStartedRest = seconds; clearInterval(restTimerInterval); restTimerEndTime = Date.now() + seconds * 1000; updateRestTimer(); restTimerInterval = setInterval(updateRestTimer, 1000); saveInProgressWorkout(); }
+        function stopRestTimer() { clearInterval(restTimerInterval); restTimerDisplay.textContent = "00:00"; restTimerEndTime = null; saveInProgressWorkout(); }
+        function updateRestTimer() { const remaining = restTimerEndTime - Date.now(); if (remaining <= 0) { clearInterval(restTimerInterval); restTimerDisplay.textContent = "00:00"; restTimerEndTime = null; playBeep(); showNotification('Rest Over!', { body: "Time to start your next set!" }); saveInProgressWorkout(); return; } const minutes = String(Math.floor((remaining % 3600000) / 60000)).padStart(2, '0'); const seconds = String(Math.floor((remaining % 60000) / 1000)).padStart(2, '0'); restTimerDisplay.textContent = `${minutes}:${seconds}`; }
         function parseRepRange(repString) { const parts = repString.split('-').map(s => parseInt(s.trim())); return { min: parts[0], max: parts[1] }; }
 
         function saveInProgressWorkout() {
             const workoutData = {
                 type: workoutTitle.textContent.slice(-1),
                 startTime: workoutStartTime,
+                restTimerEndTime: restTimerEndTime,
                 exercises: []
             };
             const exerciseCards = workoutView.querySelectorAll('#exercise-list > div');
@@ -370,14 +347,8 @@
             localStorage.setItem('inProgressWorkout', JSON.stringify(workoutData));
         }
 
-        function getInProgressWorkout() {
-            const saved = localStorage.getItem('inProgressWorkout');
-            return saved ? JSON.parse(saved) : null;
-        }
-
-        function clearInProgressWorkout() {
-            localStorage.removeItem('inProgressWorkout');
-        }
+        function getInProgressWorkout() { const saved = localStorage.getItem('inProgressWorkout'); return saved ? JSON.parse(saved) : null; }
+        function clearInProgressWorkout() { localStorage.removeItem('inProgressWorkout'); }
 
         async function startWorkout(type) {
             workoutTitle.textContent = `Workout ${type}`;
@@ -390,7 +361,7 @@
             if (lastWorkout) {
                 lastWorkout.exercises.forEach(lastEx => {
                     const workoutDef = workouts[type].find(def => def.name === lastEx.originalName);
-                    if (!workoutDef || !lastEx.sets || lastEx.sets.length === 0) return;
+                    if (!workoutDef || !lastEx.sets || !lastEx.sets.length === 0) return;
                     const { min, max } = parseRepRange(workoutDef.reps);
                     const repsDone = lastEx.sets.map(s => parseInt(s.reps));
                     const allSetsMetMax = repsDone.length > 0 && repsDone.every(r => r >= max);
@@ -430,19 +401,39 @@
             showWorkoutView();
         }
 
-        function restoreWorkout(savedWorkout) {
+        async function restoreWorkout(savedWorkout) {
             workoutTitle.textContent = `Workout ${savedWorkout.type}`;
             exerciseList.innerHTML = '';
             startWorkoutTimer(savedWorkout.startTime);
-            stopRestTimer();
+            
+            if (savedWorkout.restTimerEndTime && savedWorkout.restTimerEndTime > Date.now()) {
+                restTimerEndTime = savedWorkout.restTimerEndTime;
+                updateRestTimer();
+                restTimerInterval = setInterval(updateRestTimer, 1000);
+            } else {
+                stopRestTimer();
+            }
+
+            const lastWorkout = await getLastWorkout(savedWorkout.type);
+            const progressionNotes = {};
+            if (lastWorkout) {
+                lastWorkout.exercises.forEach(lastEx => {
+                    const workoutDef = workouts[savedWorkout.type].find(def => def.name === lastEx.originalName);
+                    if (!workoutDef || !lastEx.sets || lastEx.sets.length === 0) return;
+                    const { min, max } = parseRepRange(workoutDef.reps);
+                    const repsDone = lastEx.sets.map(s => parseInt(s.reps));
+                    const allSetsMetMax = repsDone.length > 0 && repsDone.every(r => r >= max);
+                    const anySetBelowMin = repsDone.length > 0 && repsDone.some(r => r < min);
+                    if (allSetsMetMax) { progressionNotes[lastEx.originalName] = { type: 'increase', message: 'Great work! Time to increase the weight.' }; } 
+                    else if (anySetBelowMin) { progressionNotes[lastEx.originalName] = { type: 'decrease', message: 'Focus on form. Consider reducing the weight.' }; }
+                });
+            }
 
             savedWorkout.exercises.forEach(exercise => {
                 const exerciseElement = document.createElement('div');
                 exerciseElement.className = 'bg-gray-800 p-4 rounded-lg border border-gray-700';
                 exerciseElement.dataset.originalName = exercise.originalName;
-                
                 const workoutDef = workouts[savedWorkout.type].find(def => def.name === exercise.originalName);
-
                 const setsContainer = document.createElement('div');
                 setsContainer.className = 'sets-container space-y-3';
                 exercise.sets.forEach((set, i) => {
@@ -453,8 +444,17 @@
                         setRow.querySelector('.rest-indicator').textContent = `${set.rest}s`;
                     }
                 });
+                
+                let progressionHtml = '';
+                const note = progressionNotes[exercise.originalName];
+                if (note) {
+                    const bgColor = note.type === 'increase' ? 'bg-green-900/50' : 'bg-yellow-900/50';
+                    const textColor = note.type === 'increase' ? 'text-green-300' : 'text-yellow-300';
+                    const icon = note.type === 'increase' ? `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z" clip-rule="evenodd" /></svg>` : `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.707-10.293a1 1 0 00-1.414-1.414l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414l-3-3z" clip-rule="evenodd" transform="rotate(180 10 10)" /></svg>`;
+                    progressionHtml = `<div class="mt-2 p-2 rounded-md text-sm flex items-center gap-2 ${bgColor} ${textColor}">${icon}<span>${note.message}</span></div>`;
+                }
 
-                exerciseElement.innerHTML = `<div class="flex justify-between items-center mb-1"><div class="flex items-center gap-2"><h3 class="text-xl font-semibold text-white exercise-name">${exercise.name}</h3><button class="p-1 text-gray-400 hover:text-white edit-exercise-btn"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" /><path fill-rule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clip-rule="evenodd" /></svg></button></div><span class="text-sm text-gray-400">Target: ${workoutDef.reps} reps</span></div><div class="mb-3"></div>`;
+                exerciseElement.innerHTML = `<div class="flex justify-between items-center mb-1"><div class="flex items-center gap-2"><h3 class="text-xl font-semibold text-white exercise-name">${exercise.name}</h3><button class="p-1 text-gray-400 hover:text-white edit-exercise-btn"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" /><path fill-rule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clip-rule="evenodd" /></svg></button></div><span class="text-sm text-gray-400">Target: ${workoutDef.reps} reps</span></div>${progressionHtml}<div class="mb-3"></div>`;
                 exerciseElement.querySelector('.mb-3').insertAdjacentElement('afterend', setsContainer);
                 exerciseElement.innerHTML += `<button class="btn-secondary text-sm mt-4 bg-gray-700 hover:bg-gray-600 text-cyan-400 font-semibold py-1 px-3 rounded-md add-set-btn">Add Set</button>`;
                 exerciseList.appendChild(exerciseElement);
