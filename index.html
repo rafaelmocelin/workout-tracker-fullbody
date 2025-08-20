@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Full-Body Workout Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/uuid/8.3.2/uuid.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .workout-card {
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        }
+        .workout-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        .btn-primary, .btn-secondary, .btn-timer {
+            transition: background-color 0.2s ease-in-out;
+        }
+        .set-input {
+            -moz-appearance: textfield;
+        }
+        .set-input::-webkit-outer-spin-button,
+        .set-input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        .history-item-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+        .history-item-header.active + .history-item-content {
+            max-height: 1000px; /* Arbitrary large value */
+            transition: max-height 0.5s ease-in;
+        }
+        .chevron {
+            transition: transform 0.3s ease-in-out;
+        }
+        .history-item-header.active .chevron {
+            transform: rotate(90deg);
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white">
+
+    <div id="app" class="container mx-auto max-w-2xl">
+        <!-- Auth View -->
+        <div id="auth-view" class="p-4">
+            <header class="text-center mb-8">
+                <h1 class="text-4xl font-bold text-cyan-400">Workout Tracker</h1>
+                <p class="text-gray-400 mt-2">Log in or create an account to save your progress.</p>
+            </header>
+            <div class="bg-gray-800 p-8 rounded-lg border border-gray-700">
+                <form id="login-form" class="space-y-4">
+                    <h2 class="text-2xl font-bold text-center text-white">Login</h2>
+                    <input type="email" id="login-email" placeholder="Email" class="w-full bg-gray-700 text-white p-3 rounded-md" required>
+                    <input type="password" id="login-password" placeholder="Password" class="w-full bg-gray-700 text-white p-3 rounded-md" required>
+                    <button type="submit" class="btn-primary w-full bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 rounded-lg">Login</button>
+                </form>
+                <p class="text-center my-4 text-gray-400">or</p>
+                <form id="signup-form" class="space-y-4">
+                     <h2 class="text-2xl font-bold text-center text-white">Sign Up</h2>
+                    <input type="email" id="signup-email" placeholder="Email" class="w-full bg-gray-700 text-white p-3 rounded-md" required>
+                    <input type="password" id="signup-password" placeholder="Password (min. 6 characters)" class="w-full bg-gray-700 text-white p-3 rounded-md" required>
+                    <button type="submit" class="btn-secondary w-full bg-gray-600 hover:bg-gray-500 text-white font-bold py-3 rounded-lg">Create Account</button>
+                </form>
+                <p id="auth-error" class="text-red-400 text-center mt-4"></p>
+            </div>
+        </div>
+
+        <!-- Main View -->
+        <div id="main-view" class="hidden p-4">
+            <header class="text-center mb-8">
+                <h1 class="text-4xl font-bold text-cyan-400">Workout Tracker</h1>
+                <p class="text-gray-400 mt-2">Welcome! Select your workout for today.</p>
+                <p class="text-xs text-gray-500 mt-2">Logged in as: <span id="user-email-display"></span></p>
+            </header>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div id="start-workout-a" class="workout-card bg-gray-800 rounded-lg p-6 cursor-pointer border border-gray-700">
+                    <h2 class="text-2xl font-bold text-white">Workout A</h2>
+                    <p class="text-gray-400 mt-2">Focus on Squats, Bench Press, and Rows.</p>
+                </div>
+                <div id="start-workout-b" class="workout-card bg-gray-800 rounded-lg p-6 cursor-pointer border border-gray-700">
+                    <h2 class="text-2xl font-bold text-white">Workout B</h2>
+                    <p class="text-gray-400 mt-2">Focus on Deadlifts, Incline Press, and Pull-Ups.</p>
+                </div>
+            </div>
+            
+            <div class="mt-8 flex justify-center items-center gap-4">
+                 <button id="view-history-btn" class="btn-primary bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg">View Workout History</button>
+                 <button id="logout-btn" class="btn-secondary bg-red-700 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg">Logout</button>
+            </div>
+        </div>
+
+        <!-- Workout View -->
+        <div id="workout-view" class="hidden">
+            <header class="flex items-center justify-between p-4 border-b border-gray-700">
+                <div class="flex items-center">
+                    <button id="back-to-main" class="mr-4 p-2 rounded-full bg-gray-700 hover:bg-gray-600">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
+                    </button>
+                    <h1 id="workout-title" class="text-3xl font-bold text-cyan-400"></h1>
+                </div>
+                <div id="workout-timer" class="text-2xl font-mono bg-gray-800 px-3 py-1 rounded-md">00:00:00</div>
+            </header>
+            <div id="exercise-list" class="space-y-6 flex-grow overflow-y-auto p-4"></div>
+            <div class="p-2 border-t border-gray-700 space-y-2">
+                <div id="rest-timer-area" class="text-center">
+                    <span id="rest-timer-display" class="text-3xl font-mono text-cyan-400">00:00</span>
+                    <div class="flex justify-center gap-2 mt-1">
+                        <button class="btn-timer bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded-md text-sm" data-time="60">60s</button>
+                        <button class="btn-timer bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded-md text-sm" data-time="90">90s</button>
+                        <button class="btn-timer bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded-md text-sm" data-time="120">120s</button>
+                        <button id="stop-rest-timer" class="btn-timer bg-red-700 hover:bg-red-600 px-3 py-1 rounded-md text-sm">Stop</button>
+                    </div>
+                </div>
+                <button id="finish-workout" class="btn-primary w-full bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-4 rounded-lg">Finish Workout</button>
+            </div>
+        </div>
+        
+        <!-- History View -->
+        <div id="history-view" class="hidden p-4">
+             <header class="flex items-center mb-6">
+                <button id="back-to-main-from-history" class="mr-4 p-2 rounded-full bg-gray-700 hover:bg-gray-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
+                </button>
+                <h1 class="text-3xl font-bold text-cyan-400">Workout History</h1>
+            </header>
+            <div id="history-list" class="space-y-4">
+                <p class="text-gray-400">No workout history found.</p>
+            </div>
+        </div>
+
+    </div>
+
+    <script type="module">
+        // Firebase Imports
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, collection, query, getDocs, orderBy, limit, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Firebase Configuration ---
+        // PASTE YOUR FIREBASE CONFIG OBJECT HERE
+        const firebaseConfig = {
+            apiKey: "AIzaSyAYShawEluynkCip9-Myx6lO44mHfcaGNQ",
+            authDomain: "full-body-workout-4c19e.firebaseapp.com",
+            projectId: "full-body-workout-4c19e",
+            storageBucket: "full-body-workout-4c19e.firebasestorage.app",
+            messagingSenderId: "236321643307",
+            appId: "1:236321643307:web:d31b8d13ed6e3a80bd436e",
+            measurementId: "G-EH6Y02H5TH"
+        };
+        
+        let app, db, auth, userId;
+        const appId = 'standalone-workout-app'; // A unique name for your app's data
+        
+        // --- Timer State ---
+        let workoutTimerInterval, workoutStartTime;
+        let restTimerInterval, restTimerEndTime;
+        let audioCtx;
+        let lastStartedRest = null;
+
+        // --- App State & Definitions ---
+        const workouts = {
+            'A': [ { name: 'Squats', sets: 3, reps: '6-8' }, { name: 'Bench Press', sets: 3, reps: '6-8' }, { name: 'Bent-Over Rows', sets: 3, reps: '8-10' }, { name: 'Overhead Press', sets: 3, reps: '8-10' }, { name: 'Bicep Curls', sets: 2, reps: '10-12' }, { name: 'Tricep Pushdowns', sets: 2, reps: '10-12' } ],
+            'B': [ { name: 'Deadlifts', sets: 3, reps: '6-8' }, { name: 'Incline Dumbbell Press', sets: 3, reps: '8-10' }, { name: 'Pull-Ups (or Lat Pulldowns)', sets: 3, reps: '8-10' }, { name: 'Dumbbell Lateral Raises', sets: 3, reps: '10-12' }, { name: 'Hammer Curls', sets: 2, reps: '10-12' }, { name: 'Overhead Tricep Extensions', sets: 2, reps: '10-12' } ]
+        };
+        const exerciseAlternatives = {
+            'Squats': ['Leg Press', 'Bulgarian Split Squats', 'Goblet Squats', 'Hack Squat'], 'Bench Press': ['Dumbbell Bench Press', 'Incline Bench Press', 'Machine Chest Press', 'Dips'], 'Bent-Over Rows': ['T-Bar Row', 'Seated Cable Row', 'Dumbbell Row', 'Machine Row'], 'Overhead Press': ['Dumbbell Shoulder Press', 'Arnold Press', 'Machine Shoulder Press', 'Push Press'], 'Bicep Curls': ['Dumbbell Curls', 'Hammer Curls', 'Preacher Curls', 'Cable Curls'], 'Tricep Pushdowns': ['Overhead Tricep Extensions', 'Skull Crushers', 'Dips', 'Close Grip Bench Press'], 'Deadlifts': ['Romanian Deadlifts', 'Sumo Deadlifts', 'Barbell Hip Thrusts', 'Good Mornings'], 'Incline Dumbbell Press': ['Incline Barbell Press', 'Flat Dumbbell Press', 'Decline Press', 'Incline Machine Press'], 'Pull-Ups (or Lat Pulldowns)': ['Chin-Ups', 'Lat Pulldowns', 'Neutral Grip Pull-ups', 'T-Bar Row'], 'Dumbbell Lateral Raises': ['Cable Lateral Raises', 'Upright Rows', 'Face Pulls', 'Machine Lateral Raise'], 'Hammer Curls': ['Bicep Curls', 'Reverse Curls', 'Zottman Curls', 'Rope Hammer Curls'], 'Overhead Tricep Extensions': ['Tricep Pushdowns', 'Skull Crushers', 'Close Grip Bench Press', 'Cable Overhead Extension']
+        };
+
+        // --- UI Elements ---
+        const authView = document.getElementById('auth-view');
+        const mainView = document.getElementById('main-view');
+        const workoutView = document.getElementById('workout-view');
+        const historyView = document.getElementById('history-view');
+        const workoutTitle = document.getElementById('workout-title');
+        const exerciseList = document.getElementById('exercise-list');
+        const userEmailDisplay = document.getElementById('user-email-display');
+        const historyList = document.getElementById('history-list');
+        const workoutTimerDisplay = document.getElementById('workout-timer');
+        const restTimerDisplay = document.getElementById('rest-timer-display');
+        const restTimerArea = document.getElementById('rest-timer-area');
+        const authError = document.getElementById('auth-error');
+
+        // --- Initialization ---
+        async function initialize() {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            setupEventListeners();
+            handleAuthentication();
+        }
+
+        function handleAuthentication() {
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    userId = user.uid;
+                    userEmailDisplay.textContent = user.email;
+                    listenForHistoryUpdates();
+                    switchView('main');
+                } else {
+                    userId = null;
+                    switchView('auth');
+                }
+            });
+        }
+        
+        function setupEventListeners() {
+            document.getElementById('login-form').addEventListener('submit', handleLogin);
+            document.getElementById('signup-form').addEventListener('submit', handleSignup);
+            document.getElementById('logout-btn').addEventListener('click', handleLogout);
+            document.getElementById('start-workout-a').addEventListener('click', () => startWorkout('A'));
+            document.getElementById('start-workout-b').addEventListener('click', () => startWorkout('B'));
+            document.getElementById('finish-workout').addEventListener('click', finishWorkout);
+            document.getElementById('back-to-main').addEventListener('click', showMainView);
+            document.getElementById('view-history-btn').addEventListener('click', showHistoryView);
+            document.getElementById('back-to-main-from-history').addEventListener('click', showMainView);
+            exerciseList.addEventListener('click', handleExerciseListClick);
+            exerciseList.addEventListener('change', handleExerciseChange);
+            exerciseList.addEventListener('focusin', handleExerciseFocusIn);
+            historyList.addEventListener('click', (e) => {
+                const header = e.target.closest('.history-item-header');
+                if (header) header.classList.toggle('active');
+            });
+            restTimerArea.addEventListener('click', (e) => {
+                if (e.target.dataset.time) startRestTimer(parseInt(e.target.dataset.time));
+                if (e.target.id === 'stop-rest-timer') stopRestTimer();
+            });
+        }
+
+        // --- Auth Functions ---
+        async function handleSignup(e) {
+            e.preventDefault();
+            const email = document.getElementById('signup-email').value;
+            const password = document.getElementById('signup-password').value;
+            authError.textContent = '';
+            try {
+                await createUserWithEmailAndPassword(auth, email, password);
+            } catch (error) {
+                authError.textContent = error.message;
+                console.error("Signup error:", error);
+            }
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const email = document.getElementById('login-email').value;
+            const password = document.getElementById('login-password').value;
+            authError.textContent = '';
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+            } catch (error) {
+                authError.textContent = error.message;
+                console.error("Login error:", error);
+            }
+        }
+
+        async function handleLogout() {
+            try {
+                await signOut(auth);
+            } catch (error) {
+                console.error("Logout error:", error);
+            }
+        }
+
+        function switchView(viewToShow) {
+            authView.classList.add('hidden');
+            mainView.classList.add('hidden');
+            workoutView.classList.add('hidden');
+            historyView.classList.add('hidden');
+            workoutView.classList.remove('flex', 'flex-col', 'h-screen');
+            document.querySelector('#app').classList.remove('p-4');
+
+            if (viewToShow === 'auth') {
+                authView.classList.remove('hidden');
+                document.querySelector('#app').classList.add('p-4');
+            } else if (viewToShow === 'main') {
+                mainView.classList.remove('hidden');
+                document.querySelector('#app').classList.add('p-4');
+                stopWorkoutTimer();
+            } else if (viewToShow === 'workout') {
+                workoutView.classList.remove('hidden');
+                workoutView.classList.add('flex', 'flex-col', 'h-screen');
+            } else if (viewToShow === 'history') {
+                historyView.classList.remove('hidden');
+                document.querySelector('#app').classList.add('p-4');
+            }
+        }
+
+        function showMainView() { switchView('main'); }
+        function showWorkoutView() { switchView('workout'); }
+        function showHistoryView() { switchView('history'); }
+
+        function startWorkoutTimer() {
+            workoutStartTime = Date.now();
+            workoutTimerInterval = setInterval(() => {
+                const elapsed = Date.now() - workoutStartTime;
+                const hours = String(Math.floor(elapsed / 3600000)).padStart(2, '0');
+                const minutes = String(Math.floor((elapsed % 3600000) / 60000)).padStart(2, '0');
+                const seconds = String(Math.floor((elapsed % 60000) / 1000)).padStart(2, '0');
+                workoutTimerDisplay.textContent = `${hours}:${minutes}:${seconds}`;
+            }, 1000);
+        }
+
+        function stopWorkoutTimer() {
+            clearInterval(workoutTimerInterval);
+            workoutTimerDisplay.textContent = '00:00:00';
+        }
+        
+        function playBeep() {
+            if (!audioCtx) {
+                try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { console.error("Web Audio API is not supported in this browser"); return; }
+            }
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+            gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.5);
+            oscillator.start(audioCtx.currentTime);
+            oscillator.stop(audioCtx.currentTime + 0.5);
+        }
+
+        function startRestTimer(seconds) {
+            lastStartedRest = seconds;
+            clearInterval(restTimerInterval);
+            restTimerEndTime = Date.now() + seconds * 1000;
+            updateRestTimer();
+            restTimerInterval = setInterval(updateRestTimer, 1000);
+        }
+
+        function stopRestTimer() {
+            clearInterval(restTimerInterval);
+            restTimerDisplay.textContent = "00:00";
+        }
+
+        function updateRestTimer() {
+            const remaining = restTimerEndTime - Date.now();
+            if (remaining <= 0) {
+                clearInterval(restTimerInterval);
+                restTimerDisplay.textContent = "00:00";
+                playBeep();
+                return;
+            }
+            const minutes = String(Math.floor((remaining % 3600000) / 60000)).padStart(2, '0');
+            const seconds = String(Math.floor((remaining % 60000) / 1000)).padStart(2, '0');
+            restTimerDisplay.textContent = `${minutes}:${seconds}`;
+        }
+
+        function parseRepRange(repString) {
+            const parts = repString.split('-').map(s => parseInt(s.trim()));
+            return { min: parts[0], max: parts[1] };
+        }
+
+        async function startWorkout(type) {
+            workoutTitle.textContent = `Workout ${type}`;
+            exerciseList.innerHTML = '';
+            const lastWorkout = await getLastWorkout(type);
+            const progressionNotes = {};
+            startWorkoutTimer();
+            stopRestTimer();
+
+            if (lastWorkout) {
+                lastWorkout.exercises.forEach(lastEx => {
+                    const workoutDef = workouts[type].find(def => def.name === lastEx.originalName); // Match by original name
+                    if (!workoutDef || !lastEx.sets || lastEx.sets.length === 0) return;
+                    const { min, max } = parseRepRange(workoutDef.reps);
+                    const repsDone = lastEx.sets.map(s => parseInt(s.reps));
+                    const allSetsMetMax = repsDone.length > 0 && repsDone.every(r => r >= max);
+                    const anySetBelowMin = repsDone.length > 0 && repsDone.some(r => r < min);
+                    if (allSetsMetMax) {
+                        progressionNotes[lastEx.originalName] = { type: 'increase', message: 'Great work! Time to increase the weight.' };
+                    } else if (anySetBelowMin) {
+                        progressionNotes[lastEx.originalName] = { type: 'decrease', message: 'Focus on form. Consider reducing the weight.' };
+                    }
+                });
+            }
+
+            workouts[type].forEach((exercise) => {
+                const exerciseElement = document.createElement('div');
+                exerciseElement.className = 'bg-gray-800 p-4 rounded-lg border border-gray-700';
+                exerciseElement.dataset.originalName = exercise.name;
+                
+                const lastSessionData = lastWorkout?.exercises.find(e => e.originalName === exercise.name);
+                const currentExerciseName = lastSessionData ? lastSessionData.name : exercise.name;
+
+                const setsContainer = document.createElement('div');
+                setsContainer.className = 'sets-container space-y-3';
+                const setsToShow = lastSessionData ? lastSessionData.sets.length : exercise.sets;
+                for (let i = 0; i < setsToShow; i++) {
+                    const lastSet = lastSessionData?.sets[i];
+                    addSetUI(setsContainer, i, lastSet?.weight, lastSet?.reps);
+                }
+                let progressionHtml = '';
+                const note = progressionNotes[exercise.name];
+                if (note) {
+                    const bgColor = note.type === 'increase' ? 'bg-green-900/50' : 'bg-yellow-900/50';
+                    const textColor = note.type === 'increase' ? 'text-green-300' : 'text-yellow-300';
+                    const icon = note.type === 'increase' ? `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z" clip-rule="evenodd" /></svg>` : `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.707-10.293a1 1 0 00-1.414-1.414l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414l-3-3z" clip-rule="evenodd" transform="rotate(180 10 10)" /></svg>`;
+                    progressionHtml = `<div class="mt-2 p-2 rounded-md text-sm flex items-center gap-2 ${bgColor} ${textColor}">${icon}<span>${note.message}</span></div>`;
+                }
+                exerciseElement.innerHTML = `<div class="flex justify-between items-center mb-1"><div class="flex items-center gap-2"><h3 class="text-xl font-semibold text-white exercise-name">${currentExerciseName}</h3><button class="p-1 text-gray-400 hover:text-white edit-exercise-btn"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" /><path fill-rule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clip-rule="evenodd" /></svg></button></div><span class="text-sm text-gray-400">Target: ${exercise.reps} reps</span></div>${progressionHtml}<div class="mb-3"></div>`;
+                exerciseElement.querySelector('.mb-3').insertAdjacentElement('afterend', setsContainer);
+                exerciseElement.innerHTML += `<button class="btn-secondary text-sm mt-4 bg-gray-700 hover:bg-gray-600 text-cyan-400 font-semibold py-1 px-3 rounded-md add-set-btn">Add Set</button>`;
+                exerciseList.appendChild(exerciseElement);
+            });
+            showWorkoutView();
+        }
+        
+        function addSetUI(container, setIndex, weight = '', reps = '') {
+            const setEl = document.createElement('div');
+            setEl.className = 'flex items-center justify-between space-x-2 set-row';
+            setEl.innerHTML = `
+                <span class="font-bold text-gray-300 w-12">Set ${setIndex + 1}</span>
+                <div class="flex items-center space-x-2 flex-grow">
+                    <input type="number" placeholder="kg" value="${weight}" class="set-input w-full bg-gray-700 text-white p-2 rounded-md text-center" data-type="weight">
+                    <span class="text-gray-400">x</span>
+                    <input type="number" placeholder="reps" value="${reps}" class="set-input w-full bg-gray-700 text-white p-2 rounded-md text-center" data-type="reps">
+                </div>
+                <div class="flex items-center w-16 justify-end">
+                    <span class="rest-indicator text-xs text-cyan-400/80 mr-1"></span>
+                    <button class="text-red-500 hover:text-red-400 font-bold remove-set-btn p-1"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="pointer-events: none;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
+                </div>`;
+            container.appendChild(setEl);
+        }
+
+        function handleExerciseListClick(e) {
+            if (e.target.classList.contains('add-set-btn')) {
+                const exerciseCard = e.target.closest('.bg-gray-800');
+                const setsContainer = exerciseCard.querySelector('.sets-container');
+                const setIndex = setsContainer.children.length;
+                addSetUI(setsContainer, setIndex);
+            }
+            const removeBtn = e.target.closest('.remove-set-btn');
+            if (removeBtn) {
+                removeBtn.closest('.set-row').remove();
+                const exerciseCard = removeBtn.closest('.bg-gray-800');
+                const sets = exerciseCard.querySelectorAll('.sets-container > .set-row');
+                sets.forEach((set, index) => { set.querySelector('span.font-bold').textContent = `Set ${index + 1}`; });
+            }
+            const editBtn = e.target.closest('.edit-exercise-btn');
+            if (editBtn) {
+                const exerciseCard = editBtn.closest('.bg-gray-800');
+                const nameEl = exerciseCard.querySelector('.exercise-name');
+                const originalName = exerciseCard.dataset.originalName;
+                const alternatives = exerciseAlternatives[originalName] || [];
+                const allOptions = [nameEl.textContent, originalName, ...alternatives].filter((v, i, a) => a.indexOf(v) === i);
+                const selectEl = document.createElement('select');
+                selectEl.className = 'bg-gray-700 text-white p-1 rounded-md exercise-select text-xl font-semibold';
+                allOptions.forEach(opt => {
+                    const option = document.createElement('option');
+                    option.value = opt;
+                    option.textContent = opt;
+                    if (opt === nameEl.textContent) option.selected = true;
+                    selectEl.appendChild(option);
+                });
+                nameEl.replaceWith(selectEl);
+                selectEl.focus();
+            }
+        }
+
+        function handleExerciseChange(e) {
+            if (e.target.classList.contains('exercise-select')) {
+                const selectEl = e.target;
+                const newName = selectEl.value;
+                const nameEl = document.createElement('h3');
+                nameEl.className = 'text-xl font-semibold text-white exercise-name';
+                nameEl.textContent = newName;
+                selectEl.replaceWith(nameEl);
+            }
+        }
+        
+        function handleExerciseFocusIn(e) {
+            if (e.target.classList.contains('set-input')) {
+                const currentSetRow = e.target.closest('.set-row');
+                const allSetRows = Array.from(currentSetRow.parentElement.children);
+                const currentIndex = allSetRows.indexOf(currentSetRow);
+                
+                if (lastStartedRest !== null && currentIndex > 0) {
+                    const previousSetRow = allSetRows[currentIndex - 1];
+                    previousSetRow.dataset.rest = lastStartedRest;
+                    
+                    let indicator = previousSetRow.querySelector('.rest-indicator');
+                    indicator.textContent = `${lastStartedRest}s`;
+                    
+                    lastStartedRest = null; // Consume the value
+                }
+            }
+        }
+
+
+        async function finishWorkout() {
+            const duration = Date.now() - workoutStartTime;
+            stopWorkoutTimer();
+            const exerciseCards = workoutView.querySelectorAll('#exercise-list > div');
+            const exercisesData = [];
+            exerciseCards.forEach(card => {
+                const exerciseNameEl = card.querySelector('.exercise-name, .exercise-select');
+                const exerciseName = exerciseNameEl.tagName === 'SELECT' ? exerciseNameEl.value : exerciseNameEl.textContent;
+                const originalName = card.dataset.originalName;
+                const sets = [];
+                const setElements = card.querySelectorAll('.set-row');
+                setElements.forEach(setEl => {
+                    const weight = setEl.querySelector('input[data-type="weight"]').value;
+                    const reps = setEl.querySelector('input[data-type="reps"]').value;
+                    const rest = setEl.dataset.rest || null;
+                    if (weight || reps) { sets.push({ weight, reps, rest }); }
+                });
+                if (sets.length > 0) { exercisesData.push({ name: exerciseName, originalName, sets }); }
+            });
+            const sessionData = { type: workoutTitle.textContent.slice(-1), timestamp: new Date(), duration, exercises: exercisesData };
+            if (!userId) return;
+            try {
+                const sessionId = `${new Date().getTime()}-${uuid.v4()}`;
+                const sessionRef = doc(db, `artifacts/${appId}/users/${userId}/workout_sessions`, sessionId);
+                await setDoc(sessionRef, sessionData);
+                alert('Workout saved successfully!');
+                showMainView();
+            } catch (error) { console.error("Error saving workout: ", error); }
+        }
+        
+        async function getLastWorkout(type) {
+            if (!userId) return null;
+            const sessionsRef = collection(db, `artifacts/${appId}/users/${userId}/workout_sessions`);
+            const q = query(sessionsRef, orderBy("timestamp", "desc"));
+            try {
+                const querySnapshot = await getDocs(q);
+                for (const doc of querySnapshot.docs) {
+                    const data = doc.data();
+                    if (data.type === type) return data;
+                }
+                return null;
+            } catch (error) { console.error("Error getting last workout:", error); return null; }
+        }
+        
+        function listenForHistoryUpdates() {
+            if (!userId) return;
+            const sessionsRef = collection(db, `artifacts/${appId}/users/${userId}/workout_sessions`);
+            const q = query(sessionsRef, orderBy("timestamp", "desc"), limit(20));
+            onSnapshot(q, (querySnapshot) => {
+                historyList.innerHTML = querySnapshot.empty ? '<p class="text-gray-400">No workout history found.</p>' : '';
+                querySnapshot.forEach((doc) => {
+                    const session = doc.data();
+                    const sessionDate = session.timestamp.toDate();
+                    const formattedDate = sessionDate.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+                    
+                    let durationText = '';
+                    if (session.duration) {
+                        const minutes = Math.floor(session.duration / 60000);
+                        const seconds = Math.floor((session.duration % 60000) / 1000);
+                        durationText = ` - ${minutes}m ${seconds}s`;
+                    }
+
+                    let exercisesHtml = '';
+                    session.exercises.forEach(exercise => {
+                        let setsDetail = exercise.sets.map((s, i) => {
+                            const restText = s.rest ? `<span class="text-cyan-400/80">(${s.rest}s rest)</span>` : '';
+                            return `<div class="text-sm text-gray-400 flex justify-between"><span>Set ${i+1}: <span class="font-medium text-gray-300">${s.weight || 0} kg x ${s.reps || 0} reps</span></span> ${restText}</div>`;
+                        }).join('');
+                        exercisesHtml += `<div class="py-2"><div class="font-semibold text-white">${exercise.name}</div><div class="pl-4 space-y-1">${setsDetail}</div></div>`;
+                    });
+
+                    const historyItem = document.createElement('div');
+                    historyItem.className = 'bg-gray-800 rounded-lg border border-gray-700 overflow-hidden';
+                    historyItem.innerHTML = `
+                        <div class="history-item-header p-4 flex justify-between items-center cursor-pointer">
+                            <div>
+                                <h3 class="text-lg font-semibold text-cyan-400">Workout ${session.type}<span class="text-base font-normal text-gray-400">${durationText}</span></h3>
+                                <p class="text-sm text-gray-400">${formattedDate}</p>
+                            </div>
+                            <svg class="chevron h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" /></svg>
+                        </div>
+                        <div class="history-item-content bg-gray-800/50 border-t border-gray-700">
+                           <div class="p-4 space-y-2">${exercisesHtml}</div>
+                        </div>
+                    `;
+                    historyList.appendChild(historyItem);
+                });
+            }, (error) => { console.error("Error listening to history updates:", error); });
+        }
+
+        // --- Start the app ---
+        initialize();
+    </script>
+</body>
+</html>
