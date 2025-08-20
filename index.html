@@ -199,7 +199,7 @@
             if (session) {
                 userEmailDisplay.textContent = session.user.email;
                 listenForHistoryUpdates();
-                // NEW: Check for in-progress workout on load
+                requestNotificationPermission(); // Request permission on login
                 const inProgressWorkout = getInProgressWorkout();
                 if (inProgressWorkout) {
                     restoreWorkout(inProgressWorkout);
@@ -214,6 +214,7 @@
                 if (session) {
                     userEmailDisplay.textContent = session.user.email;
                     listenForHistoryUpdates();
+                    requestNotificationPermission();
                     const inProgressWorkout = getInProgressWorkout();
                     if (inProgressWorkout) {
                         restoreWorkout(inProgressWorkout);
@@ -239,7 +240,7 @@
             exerciseList.addEventListener('click', handleExerciseListClick);
             exerciseList.addEventListener('change', handleExerciseChange);
             exerciseList.addEventListener('focusin', handleExerciseFocusIn);
-            exerciseList.addEventListener('input', saveInProgressWorkout); // NEW: Auto-save on any input
+            exerciseList.addEventListener('input', saveInProgressWorkout);
             historyList.addEventListener('click', (e) => {
                 const header = e.target.closest('.history-item-header');
                 if (header) header.classList.toggle('active');
@@ -250,7 +251,6 @@
             });
         }
 
-        // --- Auth Functions ---
         async function handleSignup(e) { e.preventDefault(); const email = document.getElementById('signup-email').value; const password = document.getElementById('signup-password').value; authError.textContent = ''; const { error } = await _supabase.auth.signUp({ email, password }); if (error) { authError.textContent = error.message; console.error("Signup error:", error); } }
         async function handleLogin(e) { e.preventDefault(); const email = document.getElementById('login-email').value; const password = document.getElementById('login-password').value; authError.textContent = ''; const { error } = await _supabase.auth.signInWithPassword({ email, password }); if (error) { authError.textContent = error.message; console.error("Login error:", error); } }
         async function handleLogout() { const { error } = await _supabase.auth.signOut(); if (error) console.error("Logout error:", error); }
@@ -270,7 +270,7 @@
                 mainView.classList.remove('hidden');
                 document.querySelector('#app').classList.add('p-4');
                 stopWorkoutTimer();
-                clearInProgressWorkout(); // Clear any unfinished workout when going home
+                clearInProgressWorkout();
             } else if (viewToShow === 'workout') {
                 workoutView.classList.remove('hidden');
                 workoutView.classList.add('flex', 'flex-col', 'h-screen');
@@ -296,13 +296,56 @@
         }
 
         function stopWorkoutTimer() { clearInterval(workoutTimerInterval); workoutTimerDisplay.textContent = '00:00:00'; }
-        function playBeep() { if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { console.error("Web Audio API is not supported in this browser"); return; } } const oscillator = audioCtx.createOscillator(); const gainNode = audioCtx.createGain(); oscillator.connect(gainNode); gainNode.connect(audioCtx.destination); oscillator.type = 'sine'; oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime); gainNode.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.5); oscillator.start(audioCtx.currentTime); oscillator.stop(audioCtx.currentTime + 0.5); }
+        
+        function playBeep(count = 3) {
+            if (count <= 0) return;
+            if (!audioCtx) {
+                try {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                } catch (e) {
+                    console.error("Web Audio API is not supported in this browser");
+                    return;
+                }
+            }
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+            gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.2);
+            oscillator.start(audioCtx.currentTime);
+            oscillator.stop(audioCtx.currentTime + 0.2);
+
+            setTimeout(() => playBeep(count - 1), 400);
+        }
+
+        function requestNotificationPermission() {
+            if ('Notification' in window && Notification.permission === 'default') {
+                Notification.requestPermission();
+            }
+        }
+
+        function showNotification(title, options) {
+            if (!('Notification' in window)) {
+                console.log('This browser does not support desktop notification');
+                return;
+            }
+
+            if (Notification.permission === 'granted') {
+                const notification = new Notification(title, options);
+                notification.onclick = () => {
+                    window.focus();
+                };
+            }
+        }
+
         function startRestTimer(seconds) { lastStartedRest = seconds; clearInterval(restTimerInterval); restTimerEndTime = Date.now() + seconds * 1000; updateRestTimer(); restTimerInterval = setInterval(updateRestTimer, 1000); }
         function stopRestTimer() { clearInterval(restTimerInterval); restTimerDisplay.textContent = "00:00"; }
-        function updateRestTimer() { const remaining = restTimerEndTime - Date.now(); if (remaining <= 0) { clearInterval(restTimerInterval); restTimerDisplay.textContent = "00:00"; playBeep(); return; } const minutes = String(Math.floor((remaining % 3600000) / 60000)).padStart(2, '0'); const seconds = String(Math.floor((remaining % 60000) / 1000)).padStart(2, '0'); restTimerDisplay.textContent = `${minutes}:${seconds}`; }
+        function updateRestTimer() { const remaining = restTimerEndTime - Date.now(); if (remaining <= 0) { clearInterval(restTimerInterval); restTimerDisplay.textContent = "00:00"; playBeep(); showNotification('Rest Over!', { body: "Time to start your next set!" }); return; } const minutes = String(Math.floor((remaining % 3600000) / 60000)).padStart(2, '0'); const seconds = String(Math.floor((remaining % 60000) / 1000)).padStart(2, '0'); restTimerDisplay.textContent = `${minutes}:${seconds}`; }
         function parseRepRange(repString) { const parts = repString.split('-').map(s => parseInt(s.trim())); return { min: parts[0], max: parts[1] }; }
 
-        // --- NEW: Local Storage Functions ---
         function saveInProgressWorkout() {
             const workoutData = {
                 type: workoutTitle.textContent.slice(-1),
@@ -336,7 +379,6 @@
             localStorage.removeItem('inProgressWorkout');
         }
 
-        // --- Workout Logic ---
         async function startWorkout(type) {
             workoutTitle.textContent = `Workout ${type}`;
             exerciseList.innerHTML = '';
