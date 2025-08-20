@@ -199,7 +199,13 @@
             if (session) {
                 userEmailDisplay.textContent = session.user.email;
                 listenForHistoryUpdates();
-                switchView('main');
+                // NEW: Check for in-progress workout on load
+                const inProgressWorkout = getInProgressWorkout();
+                if (inProgressWorkout) {
+                    restoreWorkout(inProgressWorkout);
+                } else {
+                    switchView('main');
+                }
             } else {
                 switchView('auth');
             }
@@ -208,7 +214,12 @@
                 if (session) {
                     userEmailDisplay.textContent = session.user.email;
                     listenForHistoryUpdates();
-                    switchView('main');
+                    const inProgressWorkout = getInProgressWorkout();
+                    if (inProgressWorkout) {
+                        restoreWorkout(inProgressWorkout);
+                    } else {
+                        switchView('main');
+                    }
                 } else {
                     switchView('auth');
                 }
@@ -228,6 +239,7 @@
             exerciseList.addEventListener('click', handleExerciseListClick);
             exerciseList.addEventListener('change', handleExerciseChange);
             exerciseList.addEventListener('focusin', handleExerciseFocusIn);
+            exerciseList.addEventListener('input', saveInProgressWorkout); // NEW: Auto-save on any input
             historyList.addEventListener('click', (e) => {
                 const header = e.target.closest('.history-item-header');
                 if (header) header.classList.toggle('active');
@@ -239,34 +251,9 @@
         }
 
         // --- Auth Functions ---
-        async function handleSignup(e) {
-            e.preventDefault();
-            const email = document.getElementById('signup-email').value;
-            const password = document.getElementById('signup-password').value;
-            authError.textContent = '';
-            const { error } = await _supabase.auth.signUp({ email, password });
-            if (error) {
-                authError.textContent = error.message;
-                console.error("Signup error:", error);
-            }
-        }
-
-        async function handleLogin(e) {
-            e.preventDefault();
-            const email = document.getElementById('login-email').value;
-            const password = document.getElementById('login-password').value;
-            authError.textContent = '';
-            const { error } = await _supabase.auth.signInWithPassword({ email, password });
-            if (error) {
-                authError.textContent = error.message;
-                console.error("Login error:", error);
-            }
-        }
-
-        async function handleLogout() {
-            const { error } = await _supabase.auth.signOut();
-            if (error) console.error("Logout error:", error);
-        }
+        async function handleSignup(e) { e.preventDefault(); const email = document.getElementById('signup-email').value; const password = document.getElementById('signup-password').value; authError.textContent = ''; const { error } = await _supabase.auth.signUp({ email, password }); if (error) { authError.textContent = error.message; console.error("Signup error:", error); } }
+        async function handleLogin(e) { e.preventDefault(); const email = document.getElementById('login-email').value; const password = document.getElementById('login-password').value; authError.textContent = ''; const { error } = await _supabase.auth.signInWithPassword({ email, password }); if (error) { authError.textContent = error.message; console.error("Login error:", error); } }
+        async function handleLogout() { const { error } = await _supabase.auth.signOut(); if (error) console.error("Logout error:", error); }
 
         function switchView(viewToShow) {
             authView.classList.add('hidden');
@@ -283,6 +270,7 @@
                 mainView.classList.remove('hidden');
                 document.querySelector('#app').classList.add('p-4');
                 stopWorkoutTimer();
+                clearInProgressWorkout(); // Clear any unfinished workout when going home
             } else if (viewToShow === 'workout') {
                 workoutView.classList.remove('hidden');
                 workoutView.classList.add('flex', 'flex-col', 'h-screen');
@@ -296,8 +284,8 @@
         function showWorkoutView() { switchView('workout'); }
         function showHistoryView() { switchView('history'); }
 
-        function startWorkoutTimer() {
-            workoutStartTime = Date.now();
+        function startWorkoutTimer(startTime) {
+            workoutStartTime = startTime || Date.now();
             workoutTimerInterval = setInterval(() => {
                 const elapsed = Date.now() - workoutStartTime;
                 const hours = String(Math.floor(elapsed / 3600000)).padStart(2, '0');
@@ -307,58 +295,48 @@
             }, 1000);
         }
 
-        function stopWorkoutTimer() {
-            clearInterval(workoutTimerInterval);
-            workoutTimerDisplay.textContent = '00:00:00';
-        }
-        
-        function playBeep() {
-            if (!audioCtx) {
-                try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { console.error("Web Audio API is not supported in this browser"); return; }
-            }
-            const oscillator = audioCtx.createOscillator();
-            const gainNode = audioCtx.createGain();
-            oscillator.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
-            oscillator.type = 'sine';
-            oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
-            gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.5);
-            oscillator.start(audioCtx.currentTime);
-            oscillator.stop(audioCtx.currentTime + 0.5);
+        function stopWorkoutTimer() { clearInterval(workoutTimerInterval); workoutTimerDisplay.textContent = '00:00:00'; }
+        function playBeep() { if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { console.error("Web Audio API is not supported in this browser"); return; } } const oscillator = audioCtx.createOscillator(); const gainNode = audioCtx.createGain(); oscillator.connect(gainNode); gainNode.connect(audioCtx.destination); oscillator.type = 'sine'; oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime); gainNode.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.5); oscillator.start(audioCtx.currentTime); oscillator.stop(audioCtx.currentTime + 0.5); }
+        function startRestTimer(seconds) { lastStartedRest = seconds; clearInterval(restTimerInterval); restTimerEndTime = Date.now() + seconds * 1000; updateRestTimer(); restTimerInterval = setInterval(updateRestTimer, 1000); }
+        function stopRestTimer() { clearInterval(restTimerInterval); restTimerDisplay.textContent = "00:00"; }
+        function updateRestTimer() { const remaining = restTimerEndTime - Date.now(); if (remaining <= 0) { clearInterval(restTimerInterval); restTimerDisplay.textContent = "00:00"; playBeep(); return; } const minutes = String(Math.floor((remaining % 3600000) / 60000)).padStart(2, '0'); const seconds = String(Math.floor((remaining % 60000) / 1000)).padStart(2, '0'); restTimerDisplay.textContent = `${minutes}:${seconds}`; }
+        function parseRepRange(repString) { const parts = repString.split('-').map(s => parseInt(s.trim())); return { min: parts[0], max: parts[1] }; }
+
+        // --- NEW: Local Storage Functions ---
+        function saveInProgressWorkout() {
+            const workoutData = {
+                type: workoutTitle.textContent.slice(-1),
+                startTime: workoutStartTime,
+                exercises: []
+            };
+            const exerciseCards = workoutView.querySelectorAll('#exercise-list > div');
+            exerciseCards.forEach(card => {
+                const exerciseNameEl = card.querySelector('.exercise-name, .exercise-select');
+                const exerciseName = exerciseNameEl.tagName === 'SELECT' ? exerciseNameEl.value : exerciseNameEl.textContent;
+                const originalName = card.dataset.originalName;
+                const sets = [];
+                const setElements = card.querySelectorAll('.set-row');
+                setElements.forEach(setEl => {
+                    const weight = setEl.querySelector('input[data-type="weight"]').value;
+                    const reps = setEl.querySelector('input[data-type="reps"]').value;
+                    const rest = setEl.dataset.rest || null;
+                    sets.push({ weight, reps, rest });
+                });
+                workoutData.exercises.push({ name: exerciseName, originalName, sets });
+            });
+            localStorage.setItem('inProgressWorkout', JSON.stringify(workoutData));
         }
 
-        function startRestTimer(seconds) {
-            lastStartedRest = seconds;
-            clearInterval(restTimerInterval);
-            restTimerEndTime = Date.now() + seconds * 1000;
-            updateRestTimer();
-            restTimerInterval = setInterval(updateRestTimer, 1000);
+        function getInProgressWorkout() {
+            const saved = localStorage.getItem('inProgressWorkout');
+            return saved ? JSON.parse(saved) : null;
         }
 
-        function stopRestTimer() {
-            clearInterval(restTimerInterval);
-            restTimerDisplay.textContent = "00:00";
+        function clearInProgressWorkout() {
+            localStorage.removeItem('inProgressWorkout');
         }
 
-        function updateRestTimer() {
-            const remaining = restTimerEndTime - Date.now();
-            if (remaining <= 0) {
-                clearInterval(restTimerInterval);
-                restTimerDisplay.textContent = "00:00";
-                playBeep();
-                return;
-            }
-            const minutes = String(Math.floor((remaining % 3600000) / 60000)).padStart(2, '0');
-            const seconds = String(Math.floor((remaining % 60000) / 1000)).padStart(2, '0');
-            restTimerDisplay.textContent = `${minutes}:${seconds}`;
-        }
-
-        function parseRepRange(repString) {
-            const parts = repString.split('-').map(s => parseInt(s.trim()));
-            return { min: parts[0], max: parts[1] };
-        }
-
+        // --- Workout Logic ---
         async function startWorkout(type) {
             workoutTitle.textContent = `Workout ${type}`;
             exerciseList.innerHTML = '';
@@ -375,11 +353,8 @@
                     const repsDone = lastEx.sets.map(s => parseInt(s.reps));
                     const allSetsMetMax = repsDone.length > 0 && repsDone.every(r => r >= max);
                     const anySetBelowMin = repsDone.length > 0 && repsDone.some(r => r < min);
-                    if (allSetsMetMax) {
-                        progressionNotes[lastEx.originalName] = { type: 'increase', message: 'Great work! Time to increase the weight.' };
-                    } else if (anySetBelowMin) {
-                        progressionNotes[lastEx.originalName] = { type: 'decrease', message: 'Focus on form. Consider reducing the weight.' };
-                    }
+                    if (allSetsMetMax) { progressionNotes[lastEx.originalName] = { type: 'increase', message: 'Great work! Time to increase the weight.' }; } 
+                    else if (anySetBelowMin) { progressionNotes[lastEx.originalName] = { type: 'decrease', message: 'Focus on form. Consider reducing the weight.' }; }
                 });
             }
 
@@ -387,10 +362,8 @@
                 const exerciseElement = document.createElement('div');
                 exerciseElement.className = 'bg-gray-800 p-4 rounded-lg border border-gray-700';
                 exerciseElement.dataset.originalName = exercise.name;
-                
                 const lastSessionData = lastWorkout?.exercises.find(e => e.originalName === exercise.name);
                 const currentExerciseName = lastSessionData ? lastSessionData.name : exercise.name;
-
                 const setsContainer = document.createElement('div');
                 setsContainer.className = 'sets-container space-y-3';
                 const setsToShow = lastSessionData ? lastSessionData.sets.length : exercise.sets;
@@ -407,6 +380,39 @@
                     progressionHtml = `<div class="mt-2 p-2 rounded-md text-sm flex items-center gap-2 ${bgColor} ${textColor}">${icon}<span>${note.message}</span></div>`;
                 }
                 exerciseElement.innerHTML = `<div class="flex justify-between items-center mb-1"><div class="flex items-center gap-2"><h3 class="text-xl font-semibold text-white exercise-name">${currentExerciseName}</h3><button class="p-1 text-gray-400 hover:text-white edit-exercise-btn"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" /><path fill-rule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clip-rule="evenodd" /></svg></button></div><span class="text-sm text-gray-400">Target: ${exercise.reps} reps</span></div>${progressionHtml}<div class="mb-3"></div>`;
+                exerciseElement.querySelector('.mb-3').insertAdjacentElement('afterend', setsContainer);
+                exerciseElement.innerHTML += `<button class="btn-secondary text-sm mt-4 bg-gray-700 hover:bg-gray-600 text-cyan-400 font-semibold py-1 px-3 rounded-md add-set-btn">Add Set</button>`;
+                exerciseList.appendChild(exerciseElement);
+            });
+            saveInProgressWorkout();
+            showWorkoutView();
+        }
+
+        function restoreWorkout(savedWorkout) {
+            workoutTitle.textContent = `Workout ${savedWorkout.type}`;
+            exerciseList.innerHTML = '';
+            startWorkoutTimer(savedWorkout.startTime);
+            stopRestTimer();
+
+            savedWorkout.exercises.forEach(exercise => {
+                const exerciseElement = document.createElement('div');
+                exerciseElement.className = 'bg-gray-800 p-4 rounded-lg border border-gray-700';
+                exerciseElement.dataset.originalName = exercise.originalName;
+                
+                const workoutDef = workouts[savedWorkout.type].find(def => def.name === exercise.originalName);
+
+                const setsContainer = document.createElement('div');
+                setsContainer.className = 'sets-container space-y-3';
+                exercise.sets.forEach((set, i) => {
+                    addSetUI(setsContainer, i, set.weight, set.reps);
+                    if (set.rest) {
+                        const setRow = setsContainer.children[i];
+                        setRow.dataset.rest = set.rest;
+                        setRow.querySelector('.rest-indicator').textContent = `${set.rest}s`;
+                    }
+                });
+
+                exerciseElement.innerHTML = `<div class="flex justify-between items-center mb-1"><div class="flex items-center gap-2"><h3 class="text-xl font-semibold text-white exercise-name">${exercise.name}</h3><button class="p-1 text-gray-400 hover:text-white edit-exercise-btn"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" /><path fill-rule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clip-rule="evenodd" /></svg></button></div><span class="text-sm text-gray-400">Target: ${workoutDef.reps} reps</span></div><div class="mb-3"></div>`;
                 exerciseElement.querySelector('.mb-3').insertAdjacentElement('afterend', setsContainer);
                 exerciseElement.innerHTML += `<button class="btn-secondary text-sm mt-4 bg-gray-700 hover:bg-gray-600 text-cyan-400 font-semibold py-1 px-3 rounded-md add-set-btn">Add Set</button>`;
                 exerciseList.appendChild(exerciseElement);
@@ -437,6 +443,7 @@
                 const setsContainer = exerciseCard.querySelector('.sets-container');
                 const setIndex = setsContainer.children.length;
                 addSetUI(setsContainer, setIndex);
+                saveInProgressWorkout();
             }
             const removeBtn = e.target.closest('.remove-set-btn');
             if (removeBtn) {
@@ -444,6 +451,7 @@
                 const exerciseCard = removeBtn.closest('.bg-gray-800');
                 const sets = exerciseCard.querySelectorAll('.sets-container > .set-row');
                 sets.forEach((set, index) => { set.querySelector('span.font-bold').textContent = `Set ${index + 1}`; });
+                saveInProgressWorkout();
             }
             const editBtn = e.target.closest('.edit-exercise-btn');
             if (editBtn) {
@@ -474,6 +482,7 @@
                 nameEl.className = 'text-xl font-semibold text-white exercise-name';
                 nameEl.textContent = newName;
                 selectEl.replaceWith(nameEl);
+                saveInProgressWorkout();
             }
         }
         
@@ -489,21 +498,18 @@
                     let indicator = previousSetRow.querySelector('.rest-indicator');
                     indicator.textContent = `${lastStartedRest}s`;
                     lastStartedRest = null;
+                    saveInProgressWorkout();
                 }
             }
         }
 
         async function finishWorkout() {
             const { data: { user } } = await _supabase.auth.getUser();
-            if (!user) {
-                alert("Could not save workout. User not logged in.");
-                return;
-            }
-
+            if (!user) { alert("Could not save workout. User not logged in."); return; }
             const duration = Date.now() - workoutStartTime;
             stopWorkoutTimer();
-            const exerciseCards = workoutView.querySelectorAll('#exercise-list > div');
             const exercisesData = [];
+            const exerciseCards = workoutView.querySelectorAll('#exercise-list > div');
             exerciseCards.forEach(card => {
                 const exerciseNameEl = card.querySelector('.exercise-name, .exercise-select');
                 const exerciseName = exerciseNameEl.tagName === 'SELECT' ? exerciseNameEl.value : exerciseNameEl.textContent;
@@ -519,79 +525,35 @@
                 if (sets.length > 0) { exercisesData.push({ name: exerciseName, originalName, sets }); }
             });
 
-            const { error } = await _supabase.from('workouts').insert({
-                user_id: user.id,
-                workout_type: workoutTitle.textContent.slice(-1),
-                duration,
-                exercises: exercisesData
-            });
-
-            if (error) {
-                console.error("Error saving workout: ", error); 
-                alert(`Failed to save workout. Error: ${error.message}`);
-            } else {
-                alert('Workout saved successfully!');
-                showMainView();
-            }
+            const { error } = await _supabase.from('workouts').insert({ user_id: user.id, workout_type: workoutTitle.textContent.slice(-1), duration, exercises: exercisesData });
+            if (error) { console.error("Error saving workout: ", error); alert(`Failed to save workout. Error: ${error.message}`); } 
+            else { alert('Workout saved successfully!'); clearInProgressWorkout(); showMainView(); }
         }
         
         async function getLastWorkout(type) {
             const { data: { user } } = await _supabase.auth.getUser();
             if (!user) return null;
-
-            const { data, error } = await _supabase
-                .from('workouts')
-                .select('*')
-                .eq('user_id', user.id)
-                .eq('workout_type', type)
-                .order('created_at', { ascending: false })
-                .limit(1);
-
-            if (error) {
-                console.error("Error getting last workout:", error);
-                return null;
-            }
+            const { data, error } = await _supabase.from('workouts').select('*').eq('user_id', user.id).eq('workout_type', type).order('created_at', { ascending: false }).limit(1);
+            if (error) { console.error("Error getting last workout:", error); return null; }
             return data?.[0];
         }
         
         function listenForHistoryUpdates() {
-            const channel = _supabase.channel('public:workouts')
-                .on('postgres_changes', { event: '*', schema: 'public', table: 'workouts' }, payload => {
-                    fetchHistory();
-                })
-                .subscribe();
-            
-            fetchHistory(); // Initial fetch
+            const channel = _supabase.channel('public:workouts').on('postgres_changes', { event: '*', schema: 'public', table: 'workouts' }, payload => { fetchHistory(); }).subscribe();
+            fetchHistory();
         }
         
         async function fetchHistory() {
             const { data: { user } } = await _supabase.auth.getUser();
             if (!user) return;
-
-            const { data, error } = await _supabase
-                .from('workouts')
-                .select('*')
-                .eq('user_id', user.id)
-                .order('created_at', { ascending: false })
-                .limit(20);
-
-            if (error) {
-                console.error("Error fetching history:", error);
-                return;
-            }
-
+            const { data, error } = await _supabase.from('workouts').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(20);
+            if (error) { console.error("Error fetching history:", error); return; }
             historyList.innerHTML = data.length === 0 ? '<p class="text-gray-400">No workout history found.</p>' : '';
             data.forEach((session) => {
                 const sessionDate = new Date(session.created_at);
                 const formattedDate = sessionDate.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
-                
                 let durationText = '';
-                if (session.duration) {
-                    const minutes = Math.floor(session.duration / 60000);
-                    const seconds = Math.floor((session.duration % 60000) / 1000);
-                    durationText = ` - ${minutes}m ${seconds}s`;
-                }
-
+                if (session.duration) { const minutes = Math.floor(session.duration / 60000); const seconds = Math.floor((session.duration % 60000) / 1000); durationText = ` - ${minutes}m ${seconds}s`; }
                 let exercisesHtml = '';
                 session.exercises.forEach(exercise => {
                     let setsDetail = exercise.sets.map((s, i) => {
@@ -600,21 +562,9 @@
                     }).join('');
                     exercisesHtml += `<div class="py-2"><div class="font-semibold text-white">${exercise.name}</div><div class="pl-4 space-y-1">${setsDetail}</div></div>`;
                 });
-
                 const historyItem = document.createElement('div');
                 historyItem.className = 'bg-gray-800 rounded-lg border border-gray-700 overflow-hidden';
-                historyItem.innerHTML = `
-                    <div class="history-item-header p-4 flex justify-between items-center cursor-pointer">
-                        <div>
-                            <h3 class="text-lg font-semibold text-cyan-400">Workout ${session.workout_type}<span class="text-base font-normal text-gray-400">${durationText}</span></h3>
-                            <p class="text-sm text-gray-400">${formattedDate}</p>
-                        </div>
-                        <svg class="chevron h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" /></svg>
-                    </div>
-                    <div class="history-item-content bg-gray-800/50 border-t border-gray-700">
-                       <div class="p-4 space-y-2">${exercisesHtml}</div>
-                    </div>
-                `;
+                historyItem.innerHTML = `<div class="history-item-header p-4 flex justify-between items-center cursor-pointer"><div><h3 class="text-lg font-semibold text-cyan-400">Workout ${session.workout_type}<span class="text-base font-normal text-gray-400">${durationText}</span></h3><p class="text-sm text-gray-400">${formattedDate}</p></div><svg class="chevron h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" /></svg></div><div class="history-item-content bg-gray-800/50 border-t border-gray-700"><div class="p-4 space-y-2">${exercisesHtml}</div></div>`;
                 historyList.appendChild(historyItem);
             });
         }
