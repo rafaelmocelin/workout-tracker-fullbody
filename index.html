@@ -49,6 +49,12 @@
 <body class="bg-gray-900 text-white">
 
     <div id="app" class="container mx-auto max-w-2xl">
+        <!-- Config Warning -->
+        <div id="config-warning" class="hidden p-4 m-4 bg-red-800/50 text-red-300 rounded-lg border border-red-700">
+            <h3 class="font-bold">Configuration Needed!</h3>
+            <p class="text-sm">You haven't added your Firebase configuration. Please paste your `firebaseConfig` object into the HTML file to connect to your database.</p>
+        </div>
+
         <!-- Auth View -->
         <div id="auth-view" class="p-4">
             <header class="text-center mb-8">
@@ -153,12 +159,10 @@
             projectId: "full-body-workout-4c19e",
             storageBucket: "full-body-workout-4c19e.firebasestorage.app",
             messagingSenderId: "236321643307",
-            appId: "1:236321643307:web:d31b8d13ed6e3a80bd436e",
-            measurementId: "G-EH6Y02H5TH"
+            appId: "1:236321643307:web:d31b8d13ed6e3a80bd436e"
         };
         
-        let app, db, auth, userId;
-        const appId = 'standalone-workout-app'; // A unique name for your app's data
+        const app = initializeApp(firebaseConfig);
         
         // --- Timer State ---
         let workoutTimerInterval, workoutStartTime;
@@ -188,9 +192,17 @@
         const restTimerDisplay = document.getElementById('rest-timer-display');
         const restTimerArea = document.getElementById('rest-timer-area');
         const authError = document.getElementById('auth-error');
+        const configWarning = document.getElementById('config-warning');
 
         // --- Initialization ---
         async function initialize() {
+            // NEW: Check if firebaseConfig is still the placeholder
+            if (firebaseConfig.apiKey === "YOUR_API_KEY") {
+                configWarning.classList.remove('hidden');
+                authView.classList.add('hidden'); // Hide auth form if not configured
+                return;
+            }
+
             app = initializeApp(firebaseConfig);
             db = getFirestore(app);
             auth = getAuth(app);
@@ -518,14 +530,20 @@
                 if (sets.length > 0) { exercisesData.push({ name: exerciseName, originalName, sets }); }
             });
             const sessionData = { type: workoutTitle.textContent.slice(-1), timestamp: new Date(), duration, exercises: exercisesData };
-            if (!userId) return;
+            if (!userId) {
+                alert("Could not save workout. User not logged in.");
+                return;
+            }
             try {
                 const sessionId = `${new Date().getTime()}-${uuid.v4()}`;
                 const sessionRef = doc(db, `artifacts/${appId}/users/${userId}/workout_sessions`, sessionId);
                 await setDoc(sessionRef, sessionData);
                 alert('Workout saved successfully!');
                 showMainView();
-            } catch (error) { console.error("Error saving workout: ", error); }
+            } catch (error) { 
+                console.error("Error saving workout: ", error); 
+                alert(`Failed to save workout. Error: ${error.message}`);
+            }
         }
         
         async function getLastWorkout(type) {
