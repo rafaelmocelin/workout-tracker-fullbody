@@ -302,22 +302,36 @@
             if (!audioCtx) {
                 try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { console.error("Web Audio API is not supported in this browser"); return; }
             }
-            const oscillator = audioCtx.createOscillator();
-            const gainNode = audioCtx.createGain();
-            oscillator.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
-            oscillator.type = 'sine';
-            oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
-            gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.2);
-            oscillator.start(audioCtx.currentTime);
-            oscillator.stop(audioCtx.currentTime + 0.2);
-            setTimeout(() => playBeep(count - 1), 400);
+            const playSingleBeep = () => {
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+                gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.2);
+                oscillator.start(audioCtx.currentTime);
+                oscillator.stop(audioCtx.currentTime + 0.2);
+            };
+            for (let i = 0; i < count; i++) {
+                setTimeout(playSingleBeep, i * 400);
+            }
         }
 
         function requestNotificationPermission() { if ('Notification' in window && Notification.permission === 'default') { Notification.requestPermission(); } }
         function showNotification(title, options) { if (!('Notification' in window)) { console.log('This browser does not support desktop notification'); return; } if (Notification.permission === 'granted') { const notification = new Notification(title, options); notification.onclick = () => { window.focus(); }; } }
-        function startRestTimer(seconds) { lastStartedRest = seconds; clearInterval(restTimerInterval); restTimerEndTime = Date.now() + seconds * 1000; updateRestTimer(); restTimerInterval = setInterval(updateRestTimer, 1000); saveInProgressWorkout(); }
+        function startRestTimer(seconds) { 
+            if ('Notification' in window && Notification.permission === 'default') {
+                Notification.requestPermission();
+            }
+            lastStartedRest = seconds; 
+            clearInterval(restTimerInterval); 
+            restTimerEndTime = Date.now() + seconds * 1000; 
+            updateRestTimer(); 
+            restTimerInterval = setInterval(updateRestTimer, 1000); 
+            saveInProgressWorkout(); 
+        }
         function stopRestTimer() { clearInterval(restTimerInterval); restTimerDisplay.textContent = "00:00"; restTimerEndTime = null; saveInProgressWorkout(); }
         function updateRestTimer() { const remaining = restTimerEndTime - Date.now(); if (remaining <= 0) { clearInterval(restTimerInterval); restTimerDisplay.textContent = "00:00"; restTimerEndTime = null; playBeep(); showNotification('Rest Over!', { body: "Time to start your next set!" }); saveInProgressWorkout(); return; } const minutes = String(Math.floor((remaining % 3600000) / 60000)).padStart(2, '0'); const seconds = String(Math.floor((remaining % 60000) / 1000)).padStart(2, '0'); restTimerDisplay.textContent = `${minutes}:${seconds}`; }
         function parseRepRange(repString) { const parts = repString.split('-').map(s => parseInt(s.trim())); return { min: parts[0], max: parts[1] }; }
@@ -419,7 +433,7 @@
             if (lastWorkout) {
                 lastWorkout.exercises.forEach(lastEx => {
                     const workoutDef = workouts[savedWorkout.type].find(def => def.name === lastEx.originalName);
-                    if (!workoutDef || !lastEx.sets || lastEx.sets.length === 0) return;
+                    if (!workoutDef || !lastEx.sets || !lastEx.sets.length === 0) return;
                     const { min, max } = parseRepRange(workoutDef.reps);
                     const repsDone = lastEx.sets.map(s => parseInt(s.reps));
                     const allSetsMetMax = repsDone.length > 0 && repsDone.every(r => r >= max);
