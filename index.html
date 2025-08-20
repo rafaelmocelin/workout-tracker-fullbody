@@ -6,7 +6,7 @@
     <title>Full-Body Workout Tracker</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/uuid/8.3.2/uuid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -52,7 +52,7 @@
         <!-- Config Warning -->
         <div id="config-warning" class="hidden p-4 m-4 bg-red-800/50 text-red-300 rounded-lg border border-red-700">
             <h3 class="font-bold">Configuration Needed!</h3>
-            <p class="text-sm">You haven't added your Firebase configuration. Please paste your `firebaseConfig` object into the HTML file to connect to your database.</p>
+            <p class="text-sm">You haven't added your Supabase URL and Key. Please paste your credentials into the HTML file to connect to your database.</p>
         </div>
 
         <!-- Auth View -->
@@ -142,28 +142,16 @@
                 <p class="text-gray-400">No workout history found.</p>
             </div>
         </div>
-
     </div>
 
-    <script type="module">
-        // Firebase Imports
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, collection, query, getDocs, orderBy, limit, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    <script>
+        // --- Supabase Configuration ---
+        const SUPABASE_URL = 'https://oxlcnvpdrpbayvphdfcw.supabase.co'; // Replace with your Project URL
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im94bGNudnBkcnBiYXl2cGhkZmN3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU3MDc1MDEsImV4cCI6MjA3MTI4MzUwMX0.7tXTAGu2AFnfu5tz1b0ZTD5cSsSjMZLKXw2zEXrm2B0'; // Replace with your anon key
 
-        // --- Firebase Configuration ---
-        // PASTE YOUR FIREBASE CONFIG OBJECT HERE
-        const firebaseConfig = {
-            apiKey: "AIzaSyAYShawEluynkCip9-Myx6lO44mHfcaGNQ",
-            authDomain: "full-body-workout-4c19e.firebaseapp.com",
-            projectId: "full-body-workout-4c19e",
-            storageBucket: "full-body-workout-4c19e.firebasestorage.app",
-            messagingSenderId: "236321643307",
-            appId: "1:236321643307:web:d31b8d13ed6e3a80bd436e"
-        };
-        
-        const app = initializeApp(firebaseConfig);
-        
+        let _supabase;
+        const { createClient } = supabase;
+
         // --- Timer State ---
         let workoutTimerInterval, workoutStartTime;
         let restTimerInterval, restTimerEndTime;
@@ -195,30 +183,33 @@
         const configWarning = document.getElementById('config-warning');
 
         // --- Initialization ---
-        async function initialize() {
-            // NEW: Check if firebaseConfig is still the placeholder
-            if (firebaseConfig.apiKey === "YOUR_API_KEY") {
+        function initialize() {
+            if (SUPABASE_URL === 'https://oxlcnvpdrpbayvphdfcw.supabase.co' || SUPABASE_ANON_KEY === 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im94bGNudnBkcnBiYXl2cGhkZmN3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU3MDc1MDEsImV4cCI6MjA3MTI4MzUwMX0.7tXTAGu2AFnfu5tz1b0ZTD5cSsSjMZLKXw2zEXrm2B0') {
                 configWarning.classList.remove('hidden');
-                authView.classList.add('hidden'); // Hide auth form if not configured
+                authView.classList.add('hidden');
                 return;
             }
-
-            app = initializeApp(firebaseConfig);
-            db = getFirestore(app);
-            auth = getAuth(app);
+            _supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
             setupEventListeners();
-            handleAuthentication();
+            handleAuthenticationChange();
         }
 
-        function handleAuthentication() {
-            onAuthStateChanged(auth, (user) => {
-                if (user) {
-                    userId = user.uid;
-                    userEmailDisplay.textContent = user.email;
+        async function handleAuthenticationChange() {
+            const { data: { session } } = await _supabase.auth.getSession();
+            if (session) {
+                userEmailDisplay.textContent = session.user.email;
+                listenForHistoryUpdates();
+                switchView('main');
+            } else {
+                switchView('auth');
+            }
+
+            _supabase.auth.onAuthStateChange((_event, session) => {
+                if (session) {
+                    userEmailDisplay.textContent = session.user.email;
                     listenForHistoryUpdates();
                     switchView('main');
                 } else {
-                    userId = null;
                     switchView('auth');
                 }
             });
@@ -253,9 +244,8 @@
             const email = document.getElementById('signup-email').value;
             const password = document.getElementById('signup-password').value;
             authError.textContent = '';
-            try {
-                await createUserWithEmailAndPassword(auth, email, password);
-            } catch (error) {
+            const { error } = await _supabase.auth.signUp({ email, password });
+            if (error) {
                 authError.textContent = error.message;
                 console.error("Signup error:", error);
             }
@@ -266,20 +256,16 @@
             const email = document.getElementById('login-email').value;
             const password = document.getElementById('login-password').value;
             authError.textContent = '';
-            try {
-                await signInWithEmailAndPassword(auth, email, password);
-            } catch (error) {
+            const { error } = await _supabase.auth.signInWithPassword({ email, password });
+            if (error) {
                 authError.textContent = error.message;
                 console.error("Login error:", error);
             }
         }
 
         async function handleLogout() {
-            try {
-                await signOut(auth);
-            } catch (error) {
-                console.error("Logout error:", error);
-            }
+            const { error } = await _supabase.auth.signOut();
+            if (error) console.error("Logout error:", error);
         }
 
         function switchView(viewToShow) {
@@ -383,7 +369,7 @@
 
             if (lastWorkout) {
                 lastWorkout.exercises.forEach(lastEx => {
-                    const workoutDef = workouts[type].find(def => def.name === lastEx.originalName); // Match by original name
+                    const workoutDef = workouts[type].find(def => def.name === lastEx.originalName);
                     if (!workoutDef || !lastEx.sets || lastEx.sets.length === 0) return;
                     const { min, max } = parseRepRange(workoutDef.reps);
                     const repsDone = lastEx.sets.map(s => parseInt(s.reps));
@@ -500,17 +486,20 @@
                 if (lastStartedRest !== null && currentIndex > 0) {
                     const previousSetRow = allSetRows[currentIndex - 1];
                     previousSetRow.dataset.rest = lastStartedRest;
-                    
                     let indicator = previousSetRow.querySelector('.rest-indicator');
                     indicator.textContent = `${lastStartedRest}s`;
-                    
-                    lastStartedRest = null; // Consume the value
+                    lastStartedRest = null;
                 }
             }
         }
 
-
         async function finishWorkout() {
+            const { data: { user } } = await _supabase.auth.getUser();
+            if (!user) {
+                alert("Could not save workout. User not logged in.");
+                return;
+            }
+
             const duration = Date.now() - workoutStartTime;
             stopWorkoutTimer();
             const exerciseCards = workoutView.querySelectorAll('#exercise-list > div');
@@ -529,81 +518,105 @@
                 });
                 if (sets.length > 0) { exercisesData.push({ name: exerciseName, originalName, sets }); }
             });
-            const sessionData = { type: workoutTitle.textContent.slice(-1), timestamp: new Date(), duration, exercises: exercisesData };
-            if (!userId) {
-                alert("Could not save workout. User not logged in.");
-                return;
-            }
-            try {
-                const sessionId = `${new Date().getTime()}-${uuid.v4()}`;
-                const sessionRef = doc(db, `artifacts/${appId}/users/${userId}/workout_sessions`, sessionId);
-                await setDoc(sessionRef, sessionData);
-                alert('Workout saved successfully!');
-                showMainView();
-            } catch (error) { 
+
+            const { error } = await _supabase.from('workouts').insert({
+                user_id: user.id,
+                workout_type: workoutTitle.textContent.slice(-1),
+                duration,
+                exercises: exercisesData
+            });
+
+            if (error) {
                 console.error("Error saving workout: ", error); 
                 alert(`Failed to save workout. Error: ${error.message}`);
+            } else {
+                alert('Workout saved successfully!');
+                showMainView();
             }
         }
         
         async function getLastWorkout(type) {
-            if (!userId) return null;
-            const sessionsRef = collection(db, `artifacts/${appId}/users/${userId}/workout_sessions`);
-            const q = query(sessionsRef, orderBy("timestamp", "desc"));
-            try {
-                const querySnapshot = await getDocs(q);
-                for (const doc of querySnapshot.docs) {
-                    const data = doc.data();
-                    if (data.type === type) return data;
-                }
+            const { data: { user } } = await _supabase.auth.getUser();
+            if (!user) return null;
+
+            const { data, error } = await _supabase
+                .from('workouts')
+                .select('*')
+                .eq('user_id', user.id)
+                .eq('workout_type', type)
+                .order('created_at', { ascending: false })
+                .limit(1);
+
+            if (error) {
+                console.error("Error getting last workout:", error);
                 return null;
-            } catch (error) { console.error("Error getting last workout:", error); return null; }
+            }
+            return data?.[0];
         }
         
         function listenForHistoryUpdates() {
-            if (!userId) return;
-            const sessionsRef = collection(db, `artifacts/${appId}/users/${userId}/workout_sessions`);
-            const q = query(sessionsRef, orderBy("timestamp", "desc"), limit(20));
-            onSnapshot(q, (querySnapshot) => {
-                historyList.innerHTML = querySnapshot.empty ? '<p class="text-gray-400">No workout history found.</p>' : '';
-                querySnapshot.forEach((doc) => {
-                    const session = doc.data();
-                    const sessionDate = session.timestamp.toDate();
-                    const formattedDate = sessionDate.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
-                    
-                    let durationText = '';
-                    if (session.duration) {
-                        const minutes = Math.floor(session.duration / 60000);
-                        const seconds = Math.floor((session.duration % 60000) / 1000);
-                        durationText = ` - ${minutes}m ${seconds}s`;
-                    }
+            const channel = _supabase.channel('public:workouts')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'workouts' }, payload => {
+                    fetchHistory();
+                })
+                .subscribe();
+            
+            fetchHistory(); // Initial fetch
+        }
+        
+        async function fetchHistory() {
+            const { data: { user } } = await _supabase.auth.getUser();
+            if (!user) return;
 
-                    let exercisesHtml = '';
-                    session.exercises.forEach(exercise => {
-                        let setsDetail = exercise.sets.map((s, i) => {
-                            const restText = s.rest ? `<span class="text-cyan-400/80">(${s.rest}s rest)</span>` : '';
-                            return `<div class="text-sm text-gray-400 flex justify-between"><span>Set ${i+1}: <span class="font-medium text-gray-300">${s.weight || 0} kg x ${s.reps || 0} reps</span></span> ${restText}</div>`;
-                        }).join('');
-                        exercisesHtml += `<div class="py-2"><div class="font-semibold text-white">${exercise.name}</div><div class="pl-4 space-y-1">${setsDetail}</div></div>`;
-                    });
+            const { data, error } = await _supabase
+                .from('workouts')
+                .select('*')
+                .eq('user_id', user.id)
+                .order('created_at', { ascending: false })
+                .limit(20);
 
-                    const historyItem = document.createElement('div');
-                    historyItem.className = 'bg-gray-800 rounded-lg border border-gray-700 overflow-hidden';
-                    historyItem.innerHTML = `
-                        <div class="history-item-header p-4 flex justify-between items-center cursor-pointer">
-                            <div>
-                                <h3 class="text-lg font-semibold text-cyan-400">Workout ${session.type}<span class="text-base font-normal text-gray-400">${durationText}</span></h3>
-                                <p class="text-sm text-gray-400">${formattedDate}</p>
-                            </div>
-                            <svg class="chevron h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" /></svg>
-                        </div>
-                        <div class="history-item-content bg-gray-800/50 border-t border-gray-700">
-                           <div class="p-4 space-y-2">${exercisesHtml}</div>
-                        </div>
-                    `;
-                    historyList.appendChild(historyItem);
+            if (error) {
+                console.error("Error fetching history:", error);
+                return;
+            }
+
+            historyList.innerHTML = data.length === 0 ? '<p class="text-gray-400">No workout history found.</p>' : '';
+            data.forEach((session) => {
+                const sessionDate = new Date(session.created_at);
+                const formattedDate = sessionDate.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+                
+                let durationText = '';
+                if (session.duration) {
+                    const minutes = Math.floor(session.duration / 60000);
+                    const seconds = Math.floor((session.duration % 60000) / 1000);
+                    durationText = ` - ${minutes}m ${seconds}s`;
+                }
+
+                let exercisesHtml = '';
+                session.exercises.forEach(exercise => {
+                    let setsDetail = exercise.sets.map((s, i) => {
+                        const restText = s.rest ? `<span class="text-cyan-400/80">(${s.rest}s rest)</span>` : '';
+                        return `<div class="text-sm text-gray-400 flex justify-between"><span>Set ${i+1}: <span class="font-medium text-gray-300">${s.weight || 0} kg x ${s.reps || 0} reps</span></span> ${restText}</div>`;
+                    }).join('');
+                    exercisesHtml += `<div class="py-2"><div class="font-semibold text-white">${exercise.name}</div><div class="pl-4 space-y-1">${setsDetail}</div></div>`;
                 });
-            }, (error) => { console.error("Error listening to history updates:", error); });
+
+                const historyItem = document.createElement('div');
+                historyItem.className = 'bg-gray-800 rounded-lg border border-gray-700 overflow-hidden';
+                historyItem.innerHTML = `
+                    <div class="history-item-header p-4 flex justify-between items-center cursor-pointer">
+                        <div>
+                            <h3 class="text-lg font-semibold text-cyan-400">Workout ${session.workout_type}<span class="text-base font-normal text-gray-400">${durationText}</span></h3>
+                            <p class="text-sm text-gray-400">${formattedDate}</p>
+                        </div>
+                        <svg class="chevron h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" /></svg>
+                    </div>
+                    <div class="history-item-content bg-gray-800/50 border-t border-gray-700">
+                       <div class="p-4 space-y-2">${exercisesHtml}</div>
+                    </div>
+                `;
+                historyList.appendChild(historyItem);
+            });
         }
 
         // --- Start the app ---
